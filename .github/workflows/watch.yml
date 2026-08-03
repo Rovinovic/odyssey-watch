@@ -1,0 +1,54 @@
+name: Odyssey ticket watch
+
+on:
+  schedule:
+    # Off-peak minutes on purpose: GitHub drops the most scheduled runs at
+    # :00 and other round-number minutes. Odd offsets get picked up far more
+    # reliably. 06:00-20:00 UTC = 08:00-22:00 Prague, covering the ~15:00
+    # Prague window when drops have historically happened.
+    - cron: "3,13,23,33,43,53 6-20 * * *"
+    # Hourly overnight, just in case.
+    - cron: "17 21-23,0-5 * * *"
+  workflow_dispatch: {}   # lets you trigger a manual run from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: odyssey-watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check for tickets
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_TOKEN }}
+          PUSHOVER_USER: ${{ secrets.PUSHOVER_USER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TARGET_DATES: "2026-08-28,2026-08-29"
+          CC_SITE_ID: "10101"
+        run: python watch.py
+
+      - name: Persist state
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain state.json)" ]]; then
+            git config user.name  "odyssey-watch"
+            git config user.email "actions@github.com"
+            git add state.json
+            git commit -m "state: $(date -u +%FT%TZ)"
+            git push
+          else
+            echo "no state change"
+          fi
