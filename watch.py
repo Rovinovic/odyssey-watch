@@ -137,14 +137,22 @@ def fetch_film_events(day):
     for ev in body.get("events", []):
         if ev.get("filmId", "").upper() != FILM_ID.upper():
             continue
-        attrs = " ".join(ev.get("attributeIds", [])).lower()
-        if FORMAT_FILTER and FORMAT_FILTER not in attrs:
+        # IMAX is NOT in attributeIds (those carry "70-mm"). It only appears
+        # in the auditorium fields, e.g. "IMAX VOLVO" / "IMAX". Search all
+        # three so either "imax" or "70-mm" works as a filter.
+        haystack = " ".join(ev.get("attributeIds", []) + [
+            ev.get("auditorium", "") or "",
+            ev.get("auditoriumTinyName", "") or "",
+        ]).lower()
+        if FORMAT_FILTER and FORMAT_FILTER not in haystack:
             continue
         events.append({
             "time": ev.get("eventDateTime", ""),
             "attrs": ev.get("attributeIds", []),
+            "auditorium": ev.get("auditorium", ""),
             "link": ev.get("bookingLink", ""),
             "sold_out": ev.get("soldOut", False),
+            "avail": ev.get("availabilityRatio"),
         })
     events.sort(key=lambda e: e["time"])
     return events
@@ -291,9 +299,15 @@ def fmt_events(events):
     lines = []
     for e in events:
         t = e["time"].replace("T", " ")[:16]
-        tag = " ".join(a for a in e["attrs"] if "imax" in a.lower() or "70" in a)
-        flag = " - SOLD OUT" if e["sold_out"] else ""
-        lines.append(f"* {t} {tag}{flag}".rstrip())
+        aud = e.get("auditorium") or ""
+        if e["sold_out"]:
+            state = "SOLD OUT"
+        elif e.get("avail") is not None:
+            pct = e["avail"] * 100
+            state = f"{pct:.1f}% seats left"
+        else:
+            state = ""
+        lines.append(f"* {t}  {aud}  {state}".rstrip())
         if e["link"]:
             lines.append(f"    {e['link']}")
     return "\n".join(lines)
@@ -307,7 +321,31 @@ def main():
     state = load_state()
     dry = "--dry-run" in sys.argv
 
-    if "--check" in sys.argv:
+    if "--inspect" in sys.argv:
+        # Dump everything the API returns for a date, unfiltered.
+        i = sys.argv.index("--inspect")
+        day = sys.argv[i + 1] if len(sys.argv) > i + 1 else date.today().isoformat()
+        url = api(f"/film-events/in-cinema/{CINEMA_ID}/at-date/{day}") + \
+            "?" + urllib.parse.urlencode({"attr": "", "lang": LANG})
+        print(f"GET {url}\n")
+        data = get_json(url)
+        body = data.get("body", {})
+        films = body.get("films", [])
+        events = body.get("events", [])
+        print(f"{len(films)} films, {len(events)} events on {day}\n")
+        print("--- FILMS ---")
+        for f in films:
+            star = "  <<< MATCHES CC_FILM_ID" if \
+                f.get("id", "").upper() == FILM_ID.upper() else ""
+            print(f"  {f.get('id'):<12} {f.get('name')}{star}")
+        print("\n--- EVENTS (attributeIds matter for FORMAT_FILTER) ---")
+        for e in events[:60]:
+            print(f"  {e.get('eventDateTime','')[:16]}  film={e.get('filmId')}  "
+                  f"attrs={e.get('attributeIds')}")
+        print(f"\nLooking for FILM_ID={FILM_ID}, FORMAT_FILTER='{FORMAT_FILTER}'")
+        return
+
+
         # Print the URLs and exit, so you can paste them into a browser.
         until = (date.today() + timedelta(days=LOOKAHEAD_DAYS)).isoformat()
         print("dates      :", api(f"/dates/in-cinema/{CINEMA_ID}/until/{until}")
