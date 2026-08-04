@@ -6,17 +6,18 @@ on:
     # :00 and other round-number minutes. Odd offsets get picked up far more
     # reliably. 06:00-20:00 UTC = 08:00-22:00 Prague, covering the ~15:00
     # Prague window when drops have historically happened.
-    - cron: "3,13,23,33,43,53 6-20 * * *"
+    #- cron: "3,13,23,33,43,53 6-20 * * *"
     # Hourly overnight, just in case.
-    - cron: "17 21-23,0-5 * * *"
+    #- cron: "17 21-23,0-5 * * *"
+    - cron: "*/15 * * * *"  
   workflow_dispatch: {}   # lets you trigger a manual run from the Actions tab
 
 permissions:
   contents: write
 
-concurrency:
-  group: odyssey-watch
-  cancel-in-progress: false
+#concurrency:
+#  group: odyssey-watch
+#  cancel-in-progress: false
 
 jobs:
   check:
